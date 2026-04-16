@@ -1,0 +1,562 @@
+@baseUrl = http://localhost:8080
+
+# Full API verification suite for the current demo seed.
+# If seeded logins such as khan / ali_student do not exist, enable
+# app.demo-data.reset=true once, restart the app, then switch it back to false.
+# Run the requests in order from top to bottom.
+
+### 1. Login as seeded teacher and initialize dynamic suite variables
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "khan",
+  "password": "pass123"
+}
+
+> {%
+client.test("Seeded teacher login works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+  client.assert(response.body.data.role === "TEACHER", "Expected TEACHER role");
+  client.assert(!!response.body.data.teacherId, "Expected teacherId");
+});
+
+client.global.set("khanTeacherId", response.body.data.teacherId);
+client.global.set("seedStudentRoll", "101");
+client.global.set("noorRoll", "109");
+
+const stamp = Date.now().toString();
+client.global.set("suiteTeacherUsername", "suite_teacher_" + stamp);
+client.global.set("suiteTeacherPassword", "SuitePass123");
+client.global.set("suiteTeacherName", "Suite Teacher " + stamp);
+client.global.set("suiteStudentRoll", "S" + stamp);
+client.global.set("suiteStudentName", "Suite Student " + stamp);
+client.global.set("suiteStudentUpdatedName", "Suite Student Updated " + stamp);
+client.global.set("suiteStudentUsername", "suite_student_" + stamp);
+client.global.set("suiteStudentPassword", "StudentPass123");
+client.global.set("suiteStudentNewPassword", "StudentPass456");
+client.global.set("suiteAttendanceDate", new Date().toISOString().slice(0, 10));
+%}
+
+### 2. Login as seeded student
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "ali_student",
+  "password": "pass123"
+}
+
+> {%
+client.test("Seeded student login works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+  client.assert(response.body.data.role === "STUDENT", "Expected STUDENT role");
+  client.assert(response.body.data.studentId === "101", "Expected roll 101");
+});
+%}
+
+### 3. Get all students without teacher filter
+GET {{baseUrl}}/students
+
+> {%
+client.test("Global student list is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.length >= 10, "Expected seeded students");
+});
+%}
+
+### 4. Get teacher class mappings for Khan
+GET {{baseUrl}}/teachers/{{khanTeacherId}}/classes
+
+> {%
+client.test("Teacher class mappings are returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.classes), "Expected classes array");
+  client.assert(response.body.data.classes.length >= 2, "Expected seeded mappings");
+});
+%}
+
+### 5. Get teacher-scoped student groups for Khan
+GET {{baseUrl}}/teachers/{{khanTeacherId}}/my-students
+
+> {%
+client.test("Teacher-scoped students are grouped by class", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.classGroups), "Expected classGroups array");
+  client.assert(response.body.data.classGroups.length >= 1, "Expected at least one class group");
+});
+%}
+
+### 6. Get BCA semester 1 students for Khan
+GET {{baseUrl}}/students?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Teacher-scoped class student list is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.some(function (student) {
+    return student.rollNumber === "101";
+  }), "Expected seeded roll 101");
+});
+%}
+
+### 7. Get all attendance for Khan's BCA semester 1 class
+GET {{baseUrl}}/attendance?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Class attendance list is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.length >= 14, "Expected seeded attendance rows");
+});
+%}
+
+### 8. Get attendance history for seeded student 101 in BCA semester 1
+GET {{baseUrl}}/attendance/student/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Student attendance history is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.length >= 14, "Expected seeded attendance history");
+});
+%}
+
+### 9. Get attendance percentage for seeded student 101
+GET {{baseUrl}}/attendance/percentage/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Attendance percentage is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(typeof response.body.data === "number", "Expected numeric percentage");
+});
+%}
+
+### 10. Get attendance risk for seeded student 101
+GET {{baseUrl}}/attendance/risk/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Attendance risk is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(!!response.body.data.risk, "Expected risk value");
+});
+%}
+
+### 11. Get classes required to reach 75 percent for seeded student 101
+GET {{baseUrl}}/attendance/required/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Attendance requirement is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(typeof response.body.data.classesNeeded === "number", "Expected classesNeeded");
+});
+%}
+
+### 12. Get teacher dashboard summary
+GET {{baseUrl}}/attendance/dashboard?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Teacher dashboard summary is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.totalStudents >= 5, "Expected seeded class size");
+});
+%}
+
+### 13. Get teacher intelligence breakdown
+GET {{baseUrl}}/attendance/intelligence?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Teacher intelligence buckets are returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.safeStudents), "Expected safeStudents");
+  client.assert(Array.isArray(response.body.data.warningStudents), "Expected warningStudents");
+  client.assert(Array.isArray(response.body.data.criticalStudents), "Expected criticalStudents");
+});
+%}
+
+### 14. Get students needing attention
+GET {{baseUrl}}/dashboard/students-needing-attention?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Attention list is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+});
+%}
+
+### 15. Get recent absentees
+GET {{baseUrl}}/dashboard/recent-absentees?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Recent absentees list is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+});
+%}
+
+### 16. Get attendance trends
+GET {{baseUrl}}/dashboard/trends?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Attendance trends are returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+});
+%}
+
+### 17. Get top performers
+GET {{baseUrl}}/dashboard/top-performers?teacherId={{khanTeacherId}}&course=BCA&semester=1&topN=3
+
+> {%
+client.test("Top performers are returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.length <= 3, "Expected top 3 or fewer");
+});
+%}
+
+### 18. Download CSV report for seeded student 101
+GET {{baseUrl}}/report/csv/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+Accept: text/csv
+
+> {%
+client.test("CSV report endpoint responds with CSV headers", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  const contentType = response.headers.valueOf("Content-Type") || "";
+  const disposition = response.headers.valueOf("Content-Disposition") || "";
+  client.assert(contentType.includes("text/csv"), "Expected text/csv");
+  client.assert(disposition.includes(".csv"), "Expected CSV filename");
+});
+%}
+
+### 19. Download PDF report for seeded student 101
+GET {{baseUrl}}/report/pdf/{{seedStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+Accept: application/pdf
+
+> {%
+client.test("PDF report endpoint responds with PDF headers", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  const contentType = response.headers.valueOf("Content-Type") || "";
+  const disposition = response.headers.valueOf("Content-Disposition") || "";
+  client.assert(contentType.includes("application/pdf"), "Expected application/pdf");
+  client.assert(disposition.includes(".pdf"), "Expected PDF filename");
+});
+%}
+
+### 20. Register a new teacher for mapping tests
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "{{suiteTeacherUsername}}",
+  "password": "{{suiteTeacherPassword}}",
+  "name": "{{suiteTeacherName}}"
+}
+
+> {%
+client.test("Teacher registration works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.role === "TEACHER", "Expected TEACHER role");
+  client.assert(!!response.body.data.teacherId, "Expected teacherId");
+});
+client.global.set("suiteTeacherId", response.body.data.teacherId);
+%}
+
+### 21. Login as the newly registered teacher
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{suiteTeacherUsername}}",
+  "password": "{{suiteTeacherPassword}}"
+}
+
+> {%
+client.test("New teacher login works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.role === "TEACHER", "Expected TEACHER role");
+});
+%}
+
+### 22. Assign BCA semester 1 to the new teacher
+POST {{baseUrl}}/teachers/{{suiteTeacherId}}/classes
+Content-Type: application/json
+
+{
+  "course": "BCA",
+  "semester": 1
+}
+
+> {%
+client.test("Teacher class assignment works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.course === "BCA", "Expected BCA course");
+  client.assert(response.body.data.semester === 1, "Expected semester 1");
+});
+%}
+
+### 23. Get classes for the new teacher
+GET {{baseUrl}}/teachers/{{suiteTeacherId}}/classes
+
+> {%
+client.test("New teacher classes are returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.classes), "Expected classes array");
+  client.assert(response.body.data.classes.length >= 1, "Expected assigned class");
+});
+%}
+
+### 24. Get students visible to the new teacher
+GET {{baseUrl}}/teachers/{{suiteTeacherId}}/my-students
+
+> {%
+client.test("New teacher sees scoped students", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.classGroups), "Expected classGroups array");
+});
+%}
+
+### 25. Create a student login for seeded roll 109
+POST {{baseUrl}}/auth/create-student?teacherId={{khanTeacherId}}&course=BCA&semester=1
+Content-Type: application/json
+
+{
+  "username": "{{suiteStudentUsername}}",
+  "password": "{{suiteStudentPassword}}",
+  "name": "Noor Fatima",
+  "studentId": "{{noorRoll}}"
+}
+
+> {%
+client.test("Teacher can create a student login", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.role === "STUDENT", "Expected STUDENT role");
+  client.assert(response.body.data.studentId === client.global.get("noorRoll"), "Expected roll 109");
+});
+%}
+
+### 26. Login as the newly created student account
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{suiteStudentUsername}}",
+  "password": "{{suiteStudentPassword}}"
+}
+
+> {%
+client.test("Created student login works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.role === "STUDENT", "Expected STUDENT role");
+});
+%}
+
+### 27. Change password for the newly created student account
+PUT {{baseUrl}}/auth/change-password
+Content-Type: application/json
+
+{
+  "username": "{{suiteStudentUsername}}",
+  "currentPassword": "{{suiteStudentPassword}}",
+  "newPassword": "{{suiteStudentNewPassword}}"
+}
+
+> {%
+client.test("Student password change works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+});
+%}
+
+### 28. Login with the changed student password
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{suiteStudentUsername}}",
+  "password": "{{suiteStudentNewPassword}}"
+}
+
+> {%
+client.test("Student can log in with changed password", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.role === "STUDENT", "Expected STUDENT role");
+});
+%}
+
+### 29. Add a temporary student in BCA semester 1
+POST {{baseUrl}}/students?teacherId={{khanTeacherId}}
+Content-Type: application/json
+
+{
+  "name": "{{suiteStudentName}}",
+  "rollNumber": "{{suiteStudentRoll}}",
+  "course": "BCA",
+  "semester": 1
+}
+
+> {%
+client.test("Student creation works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.rollNumber === client.global.get("suiteStudentRoll"), "Expected temp roll number");
+});
+client.global.set("suiteStudentDocId", response.body.data.id);
+%}
+
+### 30. Update the temporary student
+PUT {{baseUrl}}/students/{{suiteStudentDocId}}?teacherId={{khanTeacherId}}
+Content-Type: application/json
+
+{
+  "name": "{{suiteStudentUpdatedName}}",
+  "rollNumber": "{{suiteStudentRoll}}",
+  "course": "BCA",
+  "semester": 1
+}
+
+> {%
+client.test("Student update works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.name === client.global.get("suiteStudentUpdatedName"), "Expected updated name");
+});
+%}
+
+### 31. Verify the temporary student appears in Khan's class list
+GET {{baseUrl}}/students?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Temporary student appears in class list", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.some(function (student) {
+    return student.rollNumber === client.global.get("suiteStudentRoll");
+  }), "Expected temp student in response");
+});
+%}
+
+### 32. Add attendance for the temporary student
+POST {{baseUrl}}/attendance?teacherId={{khanTeacherId}}
+Content-Type: application/json
+
+{
+  "studentId": "{{suiteStudentRoll}}",
+  "studentName": "{{suiteStudentUpdatedName}}",
+  "date": "{{suiteAttendanceDate}}",
+  "status": "Present",
+  "teacherName": "Prof. Khan",
+  "course": "BCA",
+  "semester": 1
+}
+
+> {%
+client.test("Attendance creation works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.studentId === client.global.get("suiteStudentRoll"), "Expected temp roll number");
+});
+client.global.set("suiteAttendanceId", response.body.data.id);
+%}
+
+### 33. Update the temporary attendance record
+PUT {{baseUrl}}/attendance/{{suiteAttendanceId}}
+Content-Type: application/json
+
+{
+  "studentId": "{{suiteStudentRoll}}",
+  "studentName": "{{suiteStudentUpdatedName}}",
+  "date": "{{suiteAttendanceDate}}",
+  "status": "Absent",
+  "teacherName": "Prof. Khan",
+  "course": "BCA",
+  "semester": 1
+}
+
+> {%
+client.test("Attendance update works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.data.status === "Absent", "Expected updated status");
+});
+%}
+
+### 34. Get attendance for the temporary student
+GET {{baseUrl}}/attendance/student/{{suiteStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Temporary student attendance history is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data), "Expected array payload");
+  client.assert(response.body.data.length >= 1, "Expected at least one attendance row");
+});
+%}
+
+### 35. Get temporary student attendance percentage
+GET {{baseUrl}}/attendance/percentage/{{suiteStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Temporary student percentage is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(typeof response.body.data === "number", "Expected numeric percentage");
+});
+%}
+
+### 36. Get temporary student attendance risk
+GET {{baseUrl}}/attendance/risk/{{suiteStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Temporary student risk is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(!!response.body.data.risk, "Expected risk value");
+});
+%}
+
+### 37. Get temporary student attendance requirement
+GET {{baseUrl}}/attendance/required/{{suiteStudentRoll}}?teacherId={{khanTeacherId}}&course=BCA&semester=1
+
+> {%
+client.test("Temporary student requirement is returned", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(typeof response.body.data.classesNeeded === "number", "Expected classesNeeded");
+});
+%}
+
+### 38. Delete the temporary attendance record
+DELETE {{baseUrl}}/attendance/{{suiteAttendanceId}}?teacherId={{khanTeacherId}}
+
+> {%
+client.test("Attendance deletion works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+});
+%}
+
+### 39. Delete the temporary student
+DELETE {{baseUrl}}/students/{{suiteStudentDocId}}?teacherId={{khanTeacherId}}
+
+> {%
+client.test("Student deletion works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+});
+%}
+
+### 40. Remove the new teacher's class assignment
+DELETE {{baseUrl}}/teachers/{{suiteTeacherId}}/classes/BCA/1
+
+> {%
+client.test("Teacher class removal works", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(response.body.success === true, "Expected success=true");
+});
+%}
+
+### 41. Verify the new teacher has no remaining class assignments
+GET {{baseUrl}}/teachers/{{suiteTeacherId}}/classes
+
+> {%
+client.test("Removed teacher class assignment is gone", function () {
+  client.assert(response.status === 200, "Expected HTTP 200");
+  client.assert(Array.isArray(response.body.data.classes), "Expected classes array");
+  client.assert(response.body.data.classes.length === 0, "Expected no remaining classes");
+});
+%}
